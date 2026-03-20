@@ -1,0 +1,1 @@
+worker: python msft_script3_telegram_bot.py
