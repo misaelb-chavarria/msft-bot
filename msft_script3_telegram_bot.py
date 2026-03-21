@@ -1,17 +1,37 @@
 import os
 import logging
+import requests
 import yfinance as yf
 from datetime import datetime
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
+# ── CONFIG ────────────────────────────────────────────────────
 TOKEN   = os.environ.get("BOT_TOKEN", "8668662179:AAEZX1AUojbZa2x1e7U3lmBnzrf7Fl6NDzo")
 CHAT_ID = os.environ.get("CHAT_ID", "7945556811")
 TICKER  = "MSFT"
+API_URL = f"https://api.telegram.org/bot{TOKEN}"
 
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# ── TELEGRAM HELPERS ──────────────────────────────────────────
+def send_message(chat_id, text):
+    try:
+        requests.post(f"{API_URL}/sendMessage", json={"chat_id": chat_id, "text": text})
+    except Exception as e:
+        logger.error(f"Send error: {e}")
+
+def get_updates(offset=None):
+    try:
+        params = {"timeout": 30}
+        if offset:
+            params["offset"] = offset
+        r = requests.get(f"{API_URL}/getUpdates", params=params, timeout=35)
+        return r.json().get("result", [])
+    except Exception as e:
+        logger.error(f"GetUpdates error: {e}")
+        return []
+
+# ── STOCK DATA ────────────────────────────────────────────────
 def get_msft_data():
     try:
         stock = yf.Ticker(TICKER)
@@ -40,7 +60,7 @@ def get_msft_data():
             "time": datetime.now().strftime("%Y-%m-%d %H:%M"),
         }
     except Exception as e:
-        logger.error(f"Error: {e}")
+        logger.error(f"Stock error: {e}")
         return None
 
 def get_signal(d):
@@ -53,8 +73,9 @@ def get_signal(d):
         return "NEUTRAL", "Above MA200 but below MA50. Correction phase."
     return "CAUTION", "Mixed signals. Monitor closely."
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
+# ── COMMAND HANDLERS ──────────────────────────────────────────
+def handle_start(chat_id):
+    send_message(chat_id,
         "Microsoft Stock Intelligence Bot\n"
         "Built by Misael De Paz - Data Analyst\n\n"
         "Commands:\n"
@@ -68,15 +89,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "What is the 52-week high?"
     )
 
-async def price(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Fetching real-time data...")
+def handle_price(chat_id):
+    send_message(chat_id, "Fetching real-time data...")
     d = get_msft_data()
     if not d:
-        await update.message.reply_text("Error fetching data. Try again.")
+        send_message(chat_id, "Error fetching data. Try again.")
         return
-    sign = "+" if d["change"] >= 0 else ""
+    sign  = "+" if d["change"] >= 0 else ""
     arrow = "UP" if d["change"] >= 0 else "DOWN"
-    await update.message.reply_text(
+    send_message(chat_id,
         f"Microsoft (MSFT) - Live Price\n{d['time']}\n\n"
         f"Price:      ${d['price']:.2f}  {arrow}\n"
         f"Change:     {sign}${d['change']:.2f} ({sign}{d['change_pct']:.2f}%)\n"
@@ -86,15 +107,15 @@ async def price(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Day Low:    ${d['low']:.2f}"
     )
 
-async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Building summary...")
+def handle_summary(chat_id):
+    send_message(chat_id, "Building summary...")
     d = get_msft_data()
     if not d:
-        await update.message.reply_text("Error fetching data. Try again.")
+        send_message(chat_id, "Error fetching data. Try again.")
         return
-    sign = "+" if d["change"] >= 0 else ""
+    sign     = "+" if d["change"] >= 0 else ""
     sign_ath = "+" if d["from_ath"] >= 0 else ""
-    await update.message.reply_text(
+    send_message(chat_id,
         f"Microsoft MSFT - Full Summary\n{d['time']}\n\n"
         f"--- PRICE ---\n"
         f"Current:    ${d['price']:.2f}\n"
@@ -116,14 +137,14 @@ async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"ATH:        $467.56 (Jul 2024)"
     )
 
-async def signal(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Analyzing signals...")
+def handle_signal(chat_id):
+    send_message(chat_id, "Analyzing signals...")
     d = get_msft_data()
     if not d:
-        await update.message.reply_text("Error fetching data. Try again.")
+        send_message(chat_id, "Error fetching data. Try again.")
         return
     sig, desc = get_signal(d)
-    await update.message.reply_text(
+    send_message(chat_id,
         f"MSFT Trading Signal\n{d['time']}\n\n"
         f"Signal: {sig}\n{desc}\n\n"
         f"Price:  ${d['price']:.2f}\n"
@@ -132,8 +153,8 @@ async def signal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Note: Informational only, not financial advice."
     )
 
-async def history(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
+def handle_history(chat_id):
+    send_message(chat_id,
         "Microsoft MSFT - Key Milestones\n\n"
         "1986  IPO at $0.09 per share\n"
         "1990  Windows 3.0 launched\n"
@@ -150,8 +171,8 @@ async def history(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "$1,000 in 1986 = $4.2M today"
     )
 
-async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
+def handle_help(chat_id):
+    send_message(chat_id,
         "MSFT Bot - Commands\n\n"
         "/price   - Live price + change\n"
         "/summary - Full market summary\n"
@@ -164,9 +185,9 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "- Is MSFT above the 200-day average?"
     )
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.lower()
-    price_kw   = ["price","precio","vale","worth","cuanto","how much","trading","value","cost"]
+def handle_text(chat_id, text):
+    t = text.lower()
+    price_kw   = ["price","precio","vale","worth","cuanto","how much","value","cost","trading"]
     high_kw    = ["52","week high","alto","maximo","highest"]
     low_kw     = ["week low","bajo","minimo","lowest"]
     ma_kw      = ["average","promedio","ma50","ma200","moving","200","50 day"]
@@ -174,77 +195,96 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     signal_kw  = ["signal","buy","sell","trend","comprar","vender"]
     history_kw = ["history","historia","ipo","1986","nadella"]
     summary_kw = ["summary","resumen","full","completo","all"]
-    d = None
 
-    if any(k in text for k in price_kw):
+    if any(k in t for k in price_kw):
+        handle_price(chat_id)
+    elif any(k in t for k in high_kw):
         d = get_msft_data()
         if d:
-            sign = "+" if d["change"] >= 0 else ""
-            arrow = "UP" if d["change"] >= 0 else "DOWN"
-            msg = (f"Microsoft (MSFT) right now:\n\nPrice:  ${d['price']:.2f}  {arrow}\n"
-                   f"Change: {sign}${d['change']:.2f} ({sign}{d['change_pct']:.2f}%)\nAs of: {d['time']}")
+            send_message(chat_id, f"MSFT 52-Week Range:\nHigh: ${d['wk52h']:.2f}\nLow: ${d['wk52l']:.2f}\nNow: ${d['price']:.2f}")
         else:
-            msg = "Could not fetch price. Try again."
-    elif any(k in text for k in high_kw):
-        d = get_msft_data()
-        msg = (f"MSFT 52-Week Range:\nHigh: ${d['wk52h']:.2f}\nLow: ${d['wk52l']:.2f}\nNow: ${d['price']:.2f}") if d else "Error."
-    elif any(k in text for k in low_kw):
-        d = get_msft_data()
-        msg = (f"MSFT 52-Week Low:\nLow: ${d['wk52l']:.2f}\nHigh: ${d['wk52h']:.2f}\nNow: ${d['price']:.2f}") if d else "Error."
-    elif any(k in text for k in ma_kw):
+            send_message(chat_id, "Error fetching data.")
+    elif any(k in t for k in low_kw):
         d = get_msft_data()
         if d:
-            msg = (f"MSFT Moving Averages:\n\nCurrent: ${d['price']:.2f}\n"
-                   f"MA50:    ${d['ma50']:.2f} - {'ABOVE' if d['price'] > d['ma50'] else 'BELOW'}\n"
-                   f"MA200:   ${d['ma200']:.2f} - {'ABOVE' if d['price'] > d['ma200'] else 'BELOW'}")
+            send_message(chat_id, f"MSFT 52-Week Low:\nLow: ${d['wk52l']:.2f}\nHigh: ${d['wk52h']:.2f}\nNow: ${d['price']:.2f}")
         else:
-            msg = "Error."
-    elif any(k in text for k in cap_kw):
-        d = get_msft_data()
-        msg = f"MSFT Market Cap: ${d['mktcap']/1e12:.2f} Trillion" if d else "Error."
-    elif any(k in text for k in signal_kw):
+            send_message(chat_id, "Error fetching data.")
+    elif any(k in t for k in ma_kw):
         d = get_msft_data()
         if d:
-            sig, desc = get_signal(d)
-            msg = f"MSFT Signal: {sig}\n{desc}"
+            send_message(chat_id,
+                f"MSFT Moving Averages:\n\n"
+                f"Current: ${d['price']:.2f}\n"
+                f"MA50:    ${d['ma50']:.2f} - {'ABOVE' if d['price'] > d['ma50'] else 'BELOW'}\n"
+                f"MA200:   ${d['ma200']:.2f} - {'ABOVE' if d['price'] > d['ma200'] else 'BELOW'}"
+            )
         else:
-            msg = "Error."
-    elif any(k in text for k in history_kw):
-        msg = ("MSFT Key Milestones:\n\n1986 IPO: $0.09\n1999 Peak: $59.56\n"
-               "2009 Bottom: $15.15\n2014 Satya Nadella CEO\n2024 ATH: $467.56\nReturn: +422,000%")
-    elif any(k in text for k in summary_kw):
+            send_message(chat_id, "Error fetching data.")
+    elif any(k in t for k in cap_kw):
         d = get_msft_data()
         if d:
-            sign = "+" if d["change"] >= 0 else ""
-            msg = (f"MSFT Summary:\n\nPrice: ${d['price']:.2f}\nChange: {sign}{d['change_pct']:.2f}%\n"
-                   f"Cap: ${d['mktcap']/1e12:.2f}T\nMA50: ${d['ma50']:.2f}\nMA200: ${d['ma200']:.2f}\n"
-                   f"52W Hi: ${d['wk52h']:.2f}\n52W Lo: ${d['wk52l']:.2f}")
+            send_message(chat_id, f"MSFT Market Cap: ${d['mktcap']/1e12:.2f} Trillion")
         else:
-            msg = "Error."
+            send_message(chat_id, "Error fetching data.")
+    elif any(k in t for k in signal_kw):
+        handle_signal(chat_id)
+    elif any(k in t for k in history_kw):
+        handle_history(chat_id)
+    elif any(k in t for k in summary_kw):
+        handle_summary(chat_id)
     else:
-        msg = ("I can answer questions about Microsoft (MSFT).\n\nTry:\n"
-               "- What is the price of Microsoft today?\n"
-               "- What is the 52-week high?\n"
-               "- Is MSFT above the 200-day average?\n\n"
-               "Or use: /price /summary /signal /history")
+        send_message(chat_id,
+            "I can answer questions about Microsoft (MSFT).\n\n"
+            "Try:\n"
+            "- What is the price of Microsoft today?\n"
+            "- What is the 52-week high?\n"
+            "- Is MSFT above the 200-day average?\n\n"
+            "Or use: /price /summary /signal /history"
+        )
 
-    await update.message.reply_text(msg)
-
+# ── MAIN POLLING LOOP ─────────────────────────────────────────
 def main():
     print("MSFT Intelligence Bot - Starting...")
     print(f"Token: {TOKEN[:20]}...")
     print(f"Chat ID: {CHAT_ID}")
     print("Bot is running. Press Ctrl+C to stop.")
 
-    app = ApplicationBuilder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start",   start))
-    app.add_handler(CommandHandler("price",   price))
-    app.add_handler(CommandHandler("summary", summary))
-    app.add_handler(CommandHandler("signal",  signal))
-    app.add_handler(CommandHandler("history", history))
-    app.add_handler(CommandHandler("help",    help_cmd))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    app.run_polling()
+    offset = None
+    while True:
+        try:
+            updates = get_updates(offset)
+            for update in updates:
+                offset = update["update_id"] + 1
+                message = update.get("message", {})
+                chat_id = message.get("chat", {}).get("id")
+                text    = message.get("text", "")
+
+                if not chat_id or not text:
+                    continue
+
+                logger.info(f"Message from {chat_id}: {text}")
+
+                if text == "/start":
+                    handle_start(chat_id)
+                elif text == "/price":
+                    handle_price(chat_id)
+                elif text == "/summary":
+                    handle_summary(chat_id)
+                elif text == "/signal":
+                    handle_signal(chat_id)
+                elif text == "/history":
+                    handle_history(chat_id)
+                elif text == "/help":
+                    handle_help(chat_id)
+                else:
+                    handle_text(chat_id, text)
+
+        except KeyboardInterrupt:
+            print("Bot stopped.")
+            break
+        except Exception as e:
+            logger.error(f"Main loop error: {e}")
 
 if __name__ == "__main__":
     main()
